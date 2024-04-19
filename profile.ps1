@@ -1,39 +1,51 @@
 # Azure Functions profile.ps1
-#
-# This profile.ps1 will get executed every "cold start" of your Function App.
-# "cold start" occurs when:
-#
-# * A Function App starts up for the very first time
-# * A Function App starts up after being de-allocated due to inactivity
-#
-# You can define helper functions, run commands, or specify environment variables
-# NOTE: any variables defined that are not environment variables will get reset after the first execution
 
 # Authenticate with Azure PowerShell using MSI.
 # Remove this if you are not planning on using MSI or Azure PowerShell.
 if ($env:MSI_SECRET) {
-    Disable-AzContextAutosave -Scope Process | Out-Null
-    Connect-AzAccount -Identity
-}
+    $ExpirationDate = $null
+    $AccessToken = $null
 
-$SecretVault = Get-SecretVault | Where-Object { $_.VaultParameters.AZKVaultName -eq "GoCoviScripting" }
+    function Get-Secret {
+        param(
+            [Parameter(Mandatory = $true)]
+            [string]$Name,
 
-if (!$SecretVault) {
-    Write-Host "Registering secret vault..."
-    $VaultParams = @{
-        Name            = "GoCoviScriptingKeyVault";
-        ModuleName      = "Az.KeyVault";
-        VaultParameters = @{ 
-            AZKVaultName   = "GoCoviScripting"; 
-            SubscriptionId = "0a36f53e-28ba-4206-bba2-a9af92f9245e" 
-        };
-        DefaultVault    = $true;
+            # This is just for compatibility with the existing code
+            [Parameter()]
+            [switch]$AsPlainText
+        )
+
+        if($null -eq $AccessToken -or $ExpirationDate -lt (Get-Date)) {
+            $Params = @{
+                Uri     = "$env:MSI_ENDPOINT`?resource=https://vault.azure.net&api-version=2017-09-01"
+                Method  = 'GET'
+                Headers = @{ Secret = $env:MSI_SECRET }
+            }
+
+            $AuthResponse = (Invoke-RestMethod @Params)
+            $AccessToken = $AuthResponse.access_token
+            $ExpirationDate = $AuthResponse.expires_on -as [DateTime]
+        }
+
+        # Key Vault details
+        $KeyVaultName = "GoCoviScripting"  # Replace with your Key Vault name
+        $SecretUri = "https://$KeyVaultName.vault.azure.net/secrets/$Name"
+
+        # Retrieve secret using the access token
+        $SecretParams = @{
+            Uri     = $SecretUri
+            Method  = 'GET'
+            Body    = @{'api-version' = '7.4' }
+            Headers = @{
+                'Authorization' = "Bearer $AccessToken"
+                'Content-Type'  = 'application/json'
+            }
+        }
+
+        $SecretResponse = Invoke-RestMethod @SecretParams
+
+        # Extract the secret value
+        $SecretResponse.value
     }
-
-    Register-SecretVault @VaultParams
 }
-
-# Uncomment the next line to enable legacy AzureRm alias in Azure PowerShell.
-# Enable-AzureRmAlias
-
-# You can also define functions or aliases that can be referenced in any of your PowerShell functions.
