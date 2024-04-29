@@ -16,7 +16,7 @@ if ($env:MSI_SECRET) {
             [switch]$AsPlainText
         )
 
-        if($null -eq $AccessToken -or $ExpirationDate -lt (Get-Date)) {
+        if ($null -eq $AccessToken -or $ExpirationDate -lt (Get-Date)) {
             $Params = @{
                 Uri     = "$env:MSI_ENDPOINT`?resource=https://vault.azure.net&api-version=2017-09-01"
                 Method  = 'GET'
@@ -47,5 +47,14 @@ if ($env:MSI_SECRET) {
 
         # Extract the secret value
         $SecretResponse.value
+    }
+}
+
+Get-ChildItem -Path "$PSScriptRoot\modules" -Filter *.psd1 | ForEach-Object {
+    try {
+        Import-Module $_.FullName
+    }
+    catch {
+        Write-Warning "Failed to import module $($_.FullName): $_"
     }
 }
